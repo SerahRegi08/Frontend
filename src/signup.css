@@ -1,0 +1,164 @@
+.signup-card {
+	width: min(100%, 620px);
+	margin: 2vh auto 0;
+}
+
+.signup-kicker {
+	margin-bottom: 10px;
+	color: rgba(255, 255, 255, 0.75);
+	font-size: 13px;
+	font-weight: 700;
+	letter-spacing: 2px;
+	text-transform: uppercase;
+}
+
+.signup-card h2 {
+	color: #fff;
+	font-size: 32px;
+	margin-bottom: 8px;
+}
+
+.signup-subtitle {
+	margin-bottom: 20px;
+	color: rgba(255, 255, 255, 0.75);
+}
+
+.signup-form {
+	display: flex;
+	flex-direction: column;
+	gap: 14px;
+	text-align: left;
+}
+
+.signup-row {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 14px;
+}
+
+.signup-form label {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	color: #fff;
+	font-size: 13px;
+	font-weight: 600;
+}
+
+.signup-form input,
+.signup-form select {
+	width: 100%;
+	padding: 11px 13px;
+	border: 1px solid #cbd9ce;
+	border-radius: 7px;
+	color: #1b4332;
+	font: inherit;
+	outline: none;
+	background: #fff;
+}
+
+.signup-form input:focus,
+.signup-form select:focus {
+	border-color: #b6d7c0;
+	box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.15);
+}
+
+.suggestion-label {
+	margin-top: 3px;
+	color: rgba(255, 255, 255, 0.7);
+	font-size: 11px;
+	font-weight: 400;
+}
+
+.username-suggestions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+}
+
+.username-suggestions button,
+.signup-login-link button {
+	border: none;
+	background: none;
+	color: #d8f1dc;
+	cursor: pointer;
+	font: inherit;
+	font-weight: 700;
+}
+
+.username-suggestions button {
+	padding: 5px 9px;
+	border: 1px solid rgba(255, 255, 255, 0.35);
+	border-radius: 20px;
+	font-size: 12px;
+}
+
+.username-suggestions button:hover,
+.signup-login-link button:hover {
+	color: #fff;
+	text-decoration: underline;
+}
+
+.availability {
+	font-size: 11px;
+	font-weight: 400;
+}
+
+.available {
+	color: #d8f1dc;
+}
+
+.taken,
+.signup-error {
+	color: #ffd0c7;
+}
+
+.phone-row {
+	display: flex;
+	gap: 8px;
+}
+
+.phone-row input {
+	flex: 1;
+}
+
+.otp-btn {
+	flex: 0 0 auto;
+	padding: 0 12px;
+	border: 1px solid rgba(255, 255, 255, 0.4);
+	border-radius: 7px;
+	background: rgba(27, 67, 50, 0.8);
+	color: #fff;
+	cursor: pointer;
+	font: inherit;
+	font-size: 12px;
+	font-weight: 700;
+}
+
+.otp-btn:hover {
+	background: #102f23;
+}
+
+.signup-error,
+.signup-message {
+	margin: 0;
+	font-size: 12px;
+	text-align: center;
+}
+
+.signup-message {
+	color: #d8f1dc;
+}
+
+.signup-login-link {
+	margin-top: 18px;
+	color: rgba(255, 255, 255, 0.75);
+	font-size: 13px;
+	text-align: center;
+}
+
+@media (max-width: 700px) {
+	.signup-row {
+		grid-template-columns: 1fr;
+	}
+}
