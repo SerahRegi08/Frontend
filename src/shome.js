@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import './shome.css'
-import { getStudentProfile, sameSchool, timeAgo } from './profile'
+import { getStudentProfile, sameSchool, timeAgo, getApiBase, friendlyError } from './profile'
 import { getRoleAccounts, updateRoleAccount } from './authStore'
 
 const schoolParam = () => {
@@ -8,7 +8,29 @@ const schoolParam = () => {
   return school ? `&school=${encodeURIComponent(school)}` : ''
 }
 
-const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:5000'
+const DEFAULT_CLASSES = [
+  { classId: 'class-10a', className: 'Class 10A' },
+  { classId: 'class-10b', className: 'Class 10B' },
+  { classId: 'class-9a', className: 'Class 9A' },
+  { classId: 'class-9b', className: 'Class 9B' },
+]
+
+const loadLocalClasses = () => {
+  try {
+    const saved = JSON.parse(localStorage.getItem('cognify_classList_v1') || 'null')
+    if (Array.isArray(saved) && saved.length > 0) {
+      return saved
+        .map(item => ({
+          classId: item.id || item.classId,
+          className: item.name || item.className || item.id,
+        }))
+        .filter(c => c.classId && c.className)
+    }
+  } catch { /* fallback */ }
+  return []
+}
+
+const API_BASE = getApiBase()
 const LEVEL_LABEL = { above: 'Above average', average: 'Average', below: 'Below average' }
 const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
 const PRIORITY_ORDER = ['high', 'medium', 'low']
@@ -53,6 +75,22 @@ function StudentHome({ student, onLogout }) {
   const [pfMsg, setPfMsg] = useState('')
   const [pfError, setPfError] = useState('')
 
+  const [theme, setTheme] = useState(() => {
+    try {
+      const saved = localStorage.getItem('cognify_theme')
+      if (saved === 'light' || saved === 'dark') return saved
+      if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) return 'dark'
+    } catch { /* default below */ }
+    return 'light'
+  })
+
+  useEffect(() => {
+    try {
+      document.documentElement.setAttribute('data-theme', theme)
+      localStorage.setItem('cognify_theme', theme)
+    } catch { /* non-critical */ }
+  }, [theme])
+
   const [subjects, setSubjects] = useState(() => {
     try {
       const saved = JSON.parse(localStorage.getItem(`cognify_subjects_${uid}`) || 'null')
@@ -90,6 +128,8 @@ function StudentHome({ student, onLogout }) {
   // Self-scan state (per subject)
   const [scanFile, setScanFile] = useState(null)
   const [scanPreview, setScanPreview] = useState(null)
+  const [questionFile, setQuestionFile] = useState(null)
+  const [questionPreview, setQuestionPreview] = useState(null)
   const [scanClassId, setScanClassId] = useState('')
   const [scanName, setScanName] = useState(
     String(student.fullName || student.username || student.email || '')
@@ -97,7 +137,10 @@ function StudentHome({ student, onLogout }) {
   const [scanState, setScanState] = useState('idle')
   const [scanError, setScanError] = useState('')
   const [scanResult, setScanResult] = useState(null)
-  const [allClassNames, setAllClassNames] = useState([])
+  const [allClassNames, setAllClassNames] = useState(() => {
+    const local = loadLocalClasses()
+    return local.length > 0 ? local : DEFAULT_CLASSES
+  })
 
   // My assignments (from teacher, by class)
   const [allAssignments, setAllAssignments] = useState([])
@@ -308,13 +351,12 @@ function StudentHome({ student, onLogout }) {
         return next
       })
     } catch (error) {
-      setSubmitError(error.message)
+      setSubmitError(friendlyError(error, 'Could not submit'))
     }
     setSubmittingId(null)
   }
 
-  // Classes for the scan picker: mine first, all class names as fallback.
-  const recordClasses = (() => {
+  const recordClasses = useMemo(() => {
     const seen = new Map()
     records.forEach(record => {
       if (record.classId && !seen.has(record.classId)) {
@@ -322,32 +364,127 @@ function StudentHome({ student, onLogout }) {
       }
     })
     return [...seen.entries()].map(([classId, className]) => ({ classId, className }))
-  })()
+  }, [records])
 
+  // Always fetch class list from backend with fallback to localStorage & starter defaults
   useEffect(() => {
-    if (records.length > 0) return
-    fetch(`${API_BASE}/api/classes/names`)
-      .then(response => (response.ok ? response.json() : []))
-      .then(data => {
-        if (Array.isArray(data)) {
-          setAllClassNames(data.map(item => ({ classId: item.id, className: item.name })))
+    let active = true
+    const fetchClasses = async () => {
+      try {
+        const response = await fetch(`${API_BASE}/api/classes/names`)
+        if (response.ok) {
+          const data = await response.json()
+          if (active && Array.isArray(data) && data.length > 0) {
+            setAllClassNames(data.map(item => ({
+              classId: item.id || item.classId,
+              className: item.name || item.className,
+            })))
+            return
+          }
         }
-      })
-      .catch(() => {})
-  }, [records.length])
+      } catch { /* fallback to /api/classes */ }
 
-  const classOptions = recordClasses.length > 0 ? recordClasses : allClassNames
+      try {
+        const response = await fetch(`${API_BASE}/api/classes`)
+        if (response.ok) {
+          const data = await response.json()
+          if (active && Array.isArray(data) && data.length > 0) {
+            setAllClassNames(data.map(item => ({
+              classId: item.id || item.classId,
+              className: item.name || item.className,
+            })))
+            return
+          }
+        }
+      } catch { /* fallback to local storage */ }
+
+      if (active) {
+        const local = loadLocalClasses()
+        setAllClassNames(local.length > 0 ? local : DEFAULT_CLASSES)
+      }
+    }
+
+    fetchClasses()
+    return () => { active = false }
+  }, [])
+
+  // Comprehensive, deduplicated class options: enrolled classes + profile class + all available classes
+  const classOptions = useMemo(() => {
+    const map = new Map()
+
+    // 1. Enrolled/past classes from student records
+    records.forEach(record => {
+      const id = record.classId
+      const name = record.className || record.classId
+      if (id && name) map.set(id, { classId: id, className: name })
+    })
+
+    // 2. Class from student profile if present
+    const profileClass = student.className || getStudentProfile().className
+    if (profileClass) {
+      const match = allClassNames.find(
+        c => c.className.toLowerCase() === profileClass.toLowerCase() || c.classId === profileClass
+      )
+      if (match) {
+        map.set(match.classId, { classId: match.classId, className: match.className })
+      } else {
+        map.set(profileClass, { classId: profileClass, className: profileClass })
+      }
+    }
+
+    // 3. All classes from backend / localStorage
+    allClassNames.forEach(c => {
+      if (c.classId && c.className && !map.has(c.classId)) {
+        map.set(c.classId, { classId: c.classId, className: c.className })
+      }
+    })
+
+    // 4. Default fallback if somehow still empty
+    if (map.size === 0) {
+      DEFAULT_CLASSES.forEach(c => map.set(c.classId, c))
+    }
+
+    return Array.from(map.values())
+  }, [records, allClassNames, student.className])
+
   const scanClassName = (classOptions.find(c => c.classId === scanClassId) || {}).className || ''
 
-  // Fresh scanner each time a different subject opens.
+  // Automatically select the student's profile class or known class when available
+  useEffect(() => {
+    if (scanClassId) return
+    const profileClass = student.className || getStudentProfile().className
+    if (profileClass) {
+      const match = classOptions.find(
+        c => c.className.toLowerCase() === profileClass.toLowerCase() || c.classId === profileClass
+      )
+      if (match) {
+        setScanClassId(match.classId)
+        return
+      }
+    }
+    if (recordClasses.length === 1) {
+      setScanClassId(recordClasses[0].classId)
+    }
+  }, [classOptions, recordClasses, scanClassId, student.className])
+
+  // Fresh scanner each time a different subject opens (cleans preview, retains valid class).
   useEffect(() => {
     if (scanPreview) URL.revokeObjectURL(scanPreview)
+    if (questionPreview) URL.revokeObjectURL(questionPreview)
     setScanFile(null)
     setScanPreview(null)
+    setQuestionFile(null)
+    setQuestionPreview(null)
     setScanResult(null)
     setScanState('idle')
     setScanError('')
-    setScanClassId('')
+    const profileClass = student.className || getStudentProfile().className
+    if (!scanClassId && profileClass) {
+      const match = classOptions.find(
+        c => c.className.toLowerCase() === profileClass.toLowerCase() || c.classId === profileClass
+      )
+      if (match) setScanClassId(match.classId)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedSubject])
 
@@ -366,10 +503,23 @@ function StudentHome({ student, onLogout }) {
     else setScanPreview(null)
   }
 
+  const handleQuestionFile = event => {
+    const file = event.target.files[0]
+    if (questionPreview) URL.revokeObjectURL(questionPreview)
+    if (!file) {
+      setQuestionFile(null)
+      setQuestionPreview(null)
+      return
+    }
+    setQuestionFile(file)
+    if (file.type.startsWith('image/')) setQuestionPreview(URL.createObjectURL(file))
+    else setQuestionPreview(null)
+  }
+
   const handleStudentScan = async event => {
     event.preventDefault()
     if (!scanFile) {
-      setScanError('Upload the paper first')
+      setScanError('Upload your answer paper first')
       return
     }
     if (!scanName.trim()) {
@@ -385,6 +535,9 @@ function StudentHome({ student, onLogout }) {
     try {
       const formData = new FormData()
       formData.append('paper', scanFile)
+      if (questionFile) {
+        formData.append('questionPaper', questionFile)
+      }
       formData.append('studentName', scanName.trim())
       formData.append('subject', selectedSubject || '')
       const myProfile = getStudentProfile()
@@ -396,7 +549,11 @@ function StudentHome({ student, onLogout }) {
       })
       const data = await response.json()
       if (!response.ok) throw new Error(data.error || 'Could not analyse paper')
-      setScanResult(data.student)
+      const studentData = {
+        ...data.student,
+        weakAreas: data.student.weakAreas || data.student.supportNeeds || data.student.weakTopics || [],
+      }
+      setScanResult(studentData)
       setScanState('complete')
       // Remember this subject's assessment: boxes stay empty until a scan lands.
       if (selectedSubject && data.student) {
@@ -404,20 +561,20 @@ function StudentHome({ student, onLogout }) {
         setSubjectScans(prev => ({
           ...prev,
           [key]: {
-            papersCount: data.student.papersCount || 1,
-            level: data.student.performanceLevel,
-            levelLabel: LEVEL_LABEL[data.student.performanceLevel] || data.student.performanceLevel,
-            insights: data.student.insights || '',
-            strengths: data.student.strengths || [],
-            weakAreas: data.student.weakAreas || [],
-            recommendations: data.student.recommendations || [],
-            trend: data.student.trend || 'new',
+            papersCount: studentData.papersCount || 1,
+            level: studentData.performanceLevel,
+            levelLabel: LEVEL_LABEL[studentData.performanceLevel] || studentData.performanceLevel,
+            insights: studentData.insights || '',
+            strengths: studentData.strengths || [],
+            weakAreas: studentData.weakAreas || [],
+            recommendations: studentData.recommendations || [],
+            trend: studentData.trend || 'new',
           },
         }))
       }
     } catch (error) {
       setScanState('idle')
-      setScanError(error.message)
+      setScanError(friendlyError(error, 'Could not analyse paper'))
     }
   }
 
@@ -864,6 +1021,9 @@ function StudentHome({ student, onLogout }) {
           </div>
         </div>
         <div className="header-actions">
+          <button type="button" aria-label="Toggle theme" title="Toggle dark/light mode" className="sh-theme-toggle" onClick={() => setTheme(t => t === 'light' ? 'dark' : 'light')}>
+            {theme === 'light' ? '🌙' : '☀️'}
+          </button>
           <button type="button" aria-label="Notifications" className="sh-notif-bell" onClick={openNotif}>🔔{notifUnread > 0 && <span className="sh-notif-badge">{notifUnread > 9 ? '9+' : notifUnread}</span>}</button>
           <button type="button" aria-label="Profile" className="sh-profile-btn" onClick={openProfile}>👤</button>
           <button className="sh-logout" type="button" onClick={onLogout}>🚪 Log out</button>
@@ -932,12 +1092,74 @@ function StudentHome({ student, onLogout }) {
                 <h2>Scan your {selectedSubject} paper</h2>
                 <p className="detail-subtitle">Your result is saved automatically — your teacher sees it in your class list.</p>
                 <form onSubmit={handleStudentScan}>
-                  <label className="sh-file-label">
-                    <input type="file" accept="image/*,.pdf" onChange={handleScanFile} hidden />
-                    <span>📄</span>
-                    <span>{scanFile ? scanFile.name : 'Click to upload your paper (photo or PDF)'}</span>
-                  </label>
-                  {scanPreview && <img src={scanPreview} alt="Paper preview" className="sh-scan-preview" />}
+                  <div className="sh-scan-files-grid">
+                    <label className={`sh-file-label ${scanFile ? 'has-file' : ''}`}>
+                      <input type="file" accept="image/*,.pdf" onChange={handleScanFile} hidden />
+                      <span>{scanFile ? '✓' : '📄'}</span>
+                      <div className="sh-file-label-text">
+                        <strong>{scanFile ? scanFile.name : 'Upload Your Answer Paper'}</strong>
+                        <small>{scanFile ? `${(scanFile.size / 1024).toFixed(1)} KB · Click to change` : 'Required · Photo or PDF of your written work'}</small>
+                      </div>
+                      {scanFile && (
+                        <button
+                          type="button"
+                          className="sh-file-clear-btn"
+                          aria-label="Remove answer paper"
+                          onClick={e => {
+                            e.preventDefault()
+                            e.stopPropagation()
+                            if (scanPreview) URL.revokeObjectURL(scanPreview)
+                            setScanFile(null)
+                            setScanPreview(null)
+                          }}
+                        >
+                          ×
+                        </button>
+                      )}
+                    </label>
+
+                    <label className={`sh-file-label sh-qp-file-label ${questionFile ? 'has-file' : ''}`}>
+                      <input type="file" accept="image/*,.pdf" onChange={handleQuestionFile} hidden />
+                      <span>{questionFile ? '✓' : '📋'}</span>
+                      <div className="sh-file-label-text">
+                        <div className="sh-file-label-heading">
+                          <strong>{questionFile ? questionFile.name : 'Upload Question Paper'}</strong>
+                          <span className="sh-qp-recommended-badge">Recommended</span>
+                        </div>
+                        <small>{questionFile ? `${(questionFile.size / 1024).toFixed(1)} KB · Click to change` : 'Optional · For direct question-by-question evaluation'}</small>
+                      </div>
+                      {questionFile && (
+                        <button
+                          type="button"
+                          className="sh-file-clear-btn"
+                          aria-label="Remove question paper"
+                          onClick={e => {
+                            e.preventDefault()
+                            e.stopPropagation()
+                            if (questionPreview) URL.revokeObjectURL(questionPreview)
+                            setQuestionFile(null)
+                            setQuestionPreview(null)
+                          }}
+                        >
+                          ×
+                        </button>
+                      )}
+                    </label>
+                  </div>
+
+                  {scanPreview && (
+                    <div className="sh-preview-container">
+                      <span className="sh-preview-title">Answer Paper preview:</span>
+                      <img src={scanPreview} alt="Answer paper preview" className="sh-scan-preview" />
+                    </div>
+                  )}
+                  {questionPreview && (
+                    <div className="sh-preview-container">
+                      <span className="sh-preview-title">Question Paper preview:</span>
+                      <img src={questionPreview} alt="Question paper preview" className="sh-scan-preview" />
+                    </div>
+                  )}
+
                   <label className="sh-field-label">Your name (must match the name your teacher uses)
                     <input type="text" value={scanName} onChange={event => setScanName(event.target.value)} placeholder="e.g. Kabir Singh" />
                   </label>
@@ -950,14 +1172,23 @@ function StudentHome({ student, onLogout }) {
                   {scanError && <p className="sh-form-error">{scanError}</p>}
                   <div className="sh-scan-actions">
                     <button className="sh-primary" type="submit" disabled={scanState === 'scanning'}>
-                      {scanState === 'scanning' ? 'Scanning…' : '🔍 Scan my paper'}
+                      {scanState === 'scanning'
+                        ? (questionFile ? 'Cross-referencing against question paper…' : 'Scanning…')
+                        : (questionFile ? '🔍 Evaluate paper with Question Paper' : '🔍 Scan my paper')}
                     </button>
                   </div>
                 </form>
 
                 {scanResult && (
                   <div className="sh-scan-result">
-                    <p><span className={`status-pill ${scanResult.performanceLevel}`}>{LEVEL_LABEL[scanResult.performanceLevel] || scanResult.performanceLevel}</span></p>
+                    <div className="sh-result-top">
+                      <span className={`status-pill ${scanResult.performanceLevel}`}>{LEVEL_LABEL[scanResult.performanceLevel] || scanResult.performanceLevel}</span>
+                      {scanResult.hasQuestionPaper && (
+                        <span className="sh-qp-verified-badge" title="AI evaluated answer sheet against question paper questions">
+                          📋 Evaluated against Question Paper
+                        </span>
+                      )}
+                    </div>
                     <p className="sh-insight">{scanResult.insights}</p>
                     {scanResult.papersCount >= 2 && (
                       <div className="sh-progress-box">
@@ -1060,10 +1291,23 @@ function StudentHome({ student, onLogout }) {
               <div className="sh-grid">
                 {worksheets.map(item => (
                   <article className="sh-card" key={item.id}>
-                    <div className="sh-card-top"><span className="sh-card-icon">📝</span></div>
+                    <div className="sh-card-top">
+                      <span className="sh-card-icon">📝</span>
+                      <span className={`source-badge ${item.source === 'ai' ? 'source-ai' : 'source-upload'}`}>
+                        {item.source === 'ai' ? '✦ AI' : '⬆ Upload'}
+                      </span>
+                    </div>
                     <h2>{item.title}</h2>
-                    <p className="detail-subtitle">{item.className || ''}</p>
-                    <button className="sh-outline" type="button" onClick={() => setViewingWorksheet(item)}>View</button>
+                    <p className="detail-subtitle">{item.className || ''}{item.createdAt ? ` · ${new Date(item.createdAt).toLocaleDateString()}` : ''}</p>
+                    <div className="sh-card-actions">
+                      {item.worksheet ? (
+                        <button className="sh-outline" type="button" onClick={() => setViewingWorksheet(item)}>View</button>
+                      ) : item.fileId ? (
+                        <a className="sh-outline sh-file-action" href={`${API_BASE}/api/worksheets/file/${item.fileId}`} target="_blank" rel="noreferrer">Open File</a>
+                      ) : (
+                        <button className="sh-outline" type="button" onClick={() => setViewingWorksheet(item)}>View</button>
+                      )}
+                    </div>
                   </article>
                 ))}
               </div>
@@ -1332,19 +1576,37 @@ function StudentHome({ student, onLogout }) {
         </div>
       )}
 
-      {viewingWorksheet && viewingWorksheet.worksheet && (
+      {viewingWorksheet && (
         <div className="sh-backdrop" role="presentation" onMouseDown={event => event.target === event.currentTarget && setViewingWorksheet(null)}>
           <div className="sh-modal sh-wide" role="dialog" aria-label={viewingWorksheet.title}>
             <div className="sh-modal-head"><div><p className="section-kicker">{viewingWorksheet.className || 'Worksheet'}</p><h2>{viewingWorksheet.title}</h2></div><button type="button" className="sh-close" aria-label="Close" onClick={() => setViewingWorksheet(null)}>×</button></div>
-            <p className="sh-insight">{viewingWorksheet.worksheet.instructions}</p>
-            <ol className="sh-questions">{viewingWorksheet.worksheet.questions.map((q, i) => <li key={i}><strong>{q.topic}: </strong>{q.q}{q.hint && <span className="sh-hint"> Hint: {q.hint}</span>}</li>)}</ol>
-            {viewingWorksheet.worksheet.checklist && viewingWorksheet.worksheet.checklist.length > 0 && (
-              <div className="sh-checklist"><strong>Self-check before submitting:</strong><ul>{viewingWorksheet.worksheet.checklist.map((c, i) => <li key={i}>☐ {c}</li>)}</ul></div>
+            {viewingWorksheet.worksheet ? (
+              <>
+                <p className="sh-insight">{viewingWorksheet.worksheet.instructions}</p>
+                <ol className="sh-questions">{viewingWorksheet.worksheet.questions.map((q, i) => <li key={i}><strong>{q.topic}: </strong>{q.q}{q.hint && <span className="sh-hint"> Hint: {q.hint}</span>}</li>)}</ol>
+                {viewingWorksheet.worksheet.checklist && viewingWorksheet.worksheet.checklist.length > 0 && (
+                  <div className="sh-checklist"><strong>Self-check before submitting:</strong><ul>{viewingWorksheet.worksheet.checklist.map((c, i) => <li key={i}>☐ {c}</li>)}</ul></div>
+                )}
+                <div className="sh-modal-actions">
+                  <button className="sh-primary" type="button" onClick={() => window.print()}>🖨 Print</button>
+                  <button className="sh-outline" type="button" onClick={() => setViewingWorksheet(null)}>Close</button>
+                </div>
+              </>
+            ) : viewingWorksheet.fileId ? (
+              <div className="sh-file-modal-content">
+                <p className="sh-insight">This worksheet was uploaded by your teacher as a file.</p>
+                <div className="sh-modal-actions">
+                  <a className="sh-primary sh-download-link" href={`${API_BASE}/api/worksheets/file/${viewingWorksheet.fileId}`} target="_blank" rel="noreferrer">
+                    📄 View / Download File
+                  </a>
+                  <button className="sh-outline" type="button" onClick={() => setViewingWorksheet(null)}>Close</button>
+                </div>
+              </div>
+            ) : (
+              <div className="sh-modal-actions">
+                <button className="sh-outline" type="button" onClick={() => setViewingWorksheet(null)}>Close</button>
+              </div>
             )}
-            <div className="sh-modal-actions">
-              <button className="sh-primary" type="button" onClick={() => window.print()}>🖨 Print</button>
-              <button className="sh-outline" type="button" onClick={() => setViewingWorksheet(null)}>Close</button>
-            </div>
           </div>
         </div>
       )}

@@ -1,10 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react'
 import './thome.css'
 import MyClasses from './myclass'
-import { getTeacherProfile } from './profile'
+import { getTeacherProfile, getApiBase, friendlyError } from './profile'
 import { getRoleAccounts, updateRoleAccount } from './authStore'
 
-const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:5000'
+const API_BASE = getApiBase()
 
 // PUT helper that never breaks the UI when the backend is down.
 const putList = (path, data) => {
@@ -84,6 +84,11 @@ function TeacherHome({ onLogout }) {
 	const [pfMsg, setPfMsg] = useState('')
 	const [pfError, setPfError] = useState('')
 	const [classList, setClassList] = useState(loadClasses)
+	const firstSaveRef = useRef(true)
+	const firstAssignSaveRef = useRef(true)
+	const firstWorksheetSaveRef = useRef(true)
+	const classListRef = useRef(classList)
+	const backendDownRef = useRef(false)
 	const [showAddClass, setShowAddClass] = useState(false)
 	const [newClassName, setNewClassName] = useState('Class')
 	const [numberOfClasses, setNumberOfClasses] = useState('1')
@@ -155,7 +160,7 @@ function TeacherHome({ onLogout }) {
 			setInsightsState('complete')
 		} catch (error) {
 			setInsightsState('idle')
-			setInsightsError(error.message)
+			setInsightsError(friendlyError(error, 'Could not generate insights'))
 		}
 	}
 
@@ -209,8 +214,18 @@ function TeacherHome({ onLogout }) {
 	const addStudent = (classId, studentName) => {
 		setClassList(currentClasses => currentClasses.map(classItem => classItem.id === classId ? {
 			...classItem,
-			studentsList: [...classItem.studentsList, { id: `${Date.now()}-${classItem.studentsList.length}`, name: studentName, score: 0, specialCare: false, numericalSkills: 'needs-support' }],
+			studentsList: [...(classItem.studentsList || []), { id: `${Date.now()}-${(classItem.studentsList || []).length}`, name: studentName, score: 0, specialCare: false, numericalSkills: 'needs-support' }],
 		} : classItem))
+	}
+
+	const deleteStudent = (classId, studentId) => {
+		setClassList(currentClasses => currentClasses.map(classItem => {
+			if (classItem.id !== classId) return classItem
+			return {
+				...classItem,
+				studentsList: (classItem.studentsList || []).filter(student => student.id !== studentId),
+			}
+		}))
 	}
 
 	const updateStudentAnalysis = (classId, analyzedStudent) => {
@@ -267,7 +282,6 @@ function TeacherHome({ onLogout }) {
 		setWorksheetState('loading')
 		setWorksheetError('')
 		try {
-			const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:5000'
 			const response = await fetch(`${API_BASE}/api/worksheet`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
@@ -291,7 +305,7 @@ function TeacherHome({ onLogout }) {
 			})
 		} catch (error) {
 			setWorksheetState('idle')
-			setWorksheetError(error.message)
+			setWorksheetError(friendlyError(error, 'Could not generate worksheet'))
 		}
 	}
 
@@ -325,7 +339,7 @@ function TeacherHome({ onLogout }) {
 			if (!response.ok) throw new Error(result.error || 'Upload failed')
 			setWorksheets(current => [result, ...current])
 		} catch (error) {
-			setUploadError(`${error.message} — is the backend running on :5000?`)
+			setUploadError(friendlyError(error, 'Upload failed'))
 			return
 		}
 		setShowUploadWorksheet(false)
@@ -521,12 +535,6 @@ function TeacherHome({ onLogout }) {
 		load('/api/assignments', 'cognify_assignments_v1', setAssignments)
 		load('/api/worksheets', 'cognify_worksheets_v1', setWorksheets)
 	}, [])
-
-	const firstSaveRef = useRef(true)
-	const firstAssignSaveRef = useRef(true)
-	const firstWorksheetSaveRef = useRef(true)
-	const classListRef = useRef(classList)
-	const backendDownRef = useRef(false)
 
 	useEffect(() => {
 		classListRef.current = classList
@@ -749,7 +757,14 @@ function TeacherHome({ onLogout }) {
 					<span className="brand-mark">C</span>
 					<div>
 						<p className="brand-name">Cognify</p>
-						<p className="greeting">Good morning, Teacher!</p>
+						<p className="greeting">
+							{(() => {
+								const h = new Date().getHours()
+								const greeting = h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening'
+								const name = pfAccount?.fullName ? pfAccount.fullName.split(' ')[0] : (getTeacherProfile()?.fullName ? getTeacherProfile().fullName.split(' ')[0] : 'Teacher')
+								return `${greeting}, ${name}!`
+							})()}
+						</p>
 					</div>
 				</div>
 				<div className="header-actions">
@@ -889,7 +904,7 @@ function TeacherHome({ onLogout }) {
 				{viewingWorksheet && <div className="student-modal-backdrop" role="presentation" onMouseDown={event => event.target === event.currentTarget && setViewingWorksheet(null)}><div className="worksheet-modal" role="dialog" aria-label={viewingWorksheet.title}><div className="modal-heading"><div><p className="section-kicker">{viewingWorksheet.studentName ? `${viewingWorksheet.studentName} · ${viewingWorksheet.className}` : viewingWorksheet.className}</p><h2>{viewingWorksheet.title}</h2></div><button type="button" className="close-button" aria-label="Close" onClick={() => setViewingWorksheet(null)}>×</button></div><p className="worksheet-instructions">{viewingWorksheet.worksheet.instructions}</p><ol className="worksheet-questions">{viewingWorksheet.worksheet.questions.map((item, index) => <li key={index}><strong>{item.topic}: </strong>{item.q}{item.hint && <span className="worksheet-hint"> Hint: {item.hint}</span>}</li>)}</ol>{viewingWorksheet.worksheet.checklist && viewingWorksheet.worksheet.checklist.length > 0 && <div className="worksheet-checklist"><strong>Self-check before submitting:</strong><ul>{viewingWorksheet.worksheet.checklist.map((item, index) => <li key={index}>☐ {item}</li>)}</ul></div>}<div className="worksheet-actions"><button className="primary-button" type="button" onClick={() => window.print()}>🖨 Print</button><button className="outline-button" type="button" onClick={() => setViewingWorksheet(null)}>Close</button></div></div></div>}
 
 				{activeView === 'classes' ? (
-					<MyClasses classList={classList} onAddClass={() => setShowAddClass(true)} onAddStudent={addStudent} onStudentAnalysis={updateStudentAnalysis} onDeleteClass={deleteClass} onWorksheetSaved={saveWorksheet} />
+					<MyClasses classList={classList} onAddClass={() => setShowAddClass(true)} onAddStudent={addStudent} onDeleteStudent={deleteStudent} onStudentAnalysis={updateStudentAnalysis} onDeleteClass={deleteClass} onWorksheetSaved={saveWorksheet} />
 				) : activeView === 'assignments' ? (
 					<section className="assignments-view">
 						<div className="class-detail-heading">
@@ -1152,11 +1167,11 @@ function TeacherHome({ onLogout }) {
 
 						<div className="class-grid">
 							  {classList.map(classItem => (
-								<article className="class-card" key={classItem.name}>
-									<div className="class-title"><span>{classItem.icon}</span><h3>{classItem.name}</h3><button type="button" className="class-delete" aria-label={`Delete ${classItem.name}`} title={`Delete ${classItem.name}`} onClick={() => deleteClass(classItem.id)}>🗑</button></div>
-									<p className="student-count">{classItem.studentsList.length} Students</p>
-									<p className="attention-count">{classItem.studentsList.filter(student => student.specialCare).length} need attention</p>
-									<button className="insight-button" type="button">AI Insights <span>→</span></button>
+								<article className="class-card" key={classItem.id} onClick={() => goView('classes')}>
+									<div className="class-title"><span>{classItem.icon}</span><h3>{classItem.name}</h3><button type="button" className="class-delete" aria-label={`Delete ${classItem.name}`} title={`Delete ${classItem.name}`} onClick={(e) => { e.stopPropagation(); deleteClass(classItem.id); }}>🗑</button></div>
+									<p className="student-count">{(classItem.studentsList || []).length} Students</p>
+									<p className="attention-count">{(classItem.studentsList || []).filter(student => student.specialCare).length} need attention</p>
+									<button className="insight-button" type="button" onClick={(e) => { e.stopPropagation(); goView('insights'); }}>AI Insights <span>→</span></button>
 								</article>
 							))}
 						</div>

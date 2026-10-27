@@ -30,3 +30,21 @@ export const timeAgo = ts => {
   if (hours < 24) return `${hours}h ago`
   return `${Math.floor(hours / 24)}d ago`
 }
+
+export const getApiBase = () => {
+  if (process.env.REACT_APP_API_URL) return process.env.REACT_APP_API_URL
+  if (typeof window !== 'undefined' && window.location && window.location.hostname) {
+    return `http://${window.location.hostname}:5000`
+  }
+  return 'http://localhost:5000'
+}
+
+export const friendlyError = (err, defaultMsg = 'An error occurred') => {
+  if (!err) return defaultMsg
+  const msg = typeof err === 'string' ? err : err.message || ''
+  if (/failed to fetch|networkerror|load failed/i.test(msg)) {
+    return 'Could not connect to the Cognify server. Please ensure the backend is running at port 5000.'
+  }
+  return msg || defaultMsg
+}
+

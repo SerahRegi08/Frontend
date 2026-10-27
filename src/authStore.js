@@ -6,6 +6,28 @@ const ROLE_KEY = {
   student: { accounts: 'cognify_student_accounts', usernames: 'cognify_student_usernames' },
 }
 
+export const DEMO_ACCOUNTS = {
+  teacher: {
+    username: 'teacher',
+    email: 'teacher@cognify.edu',
+    password: 'password123',
+    fullName: 'Prof. Sarah Adams',
+    school: 'Greenwood High Academy',
+    board: 'CBSE',
+    role: 'teacher',
+  },
+  student: {
+    username: 'student',
+    email: 'student@cognify.edu',
+    password: 'password123',
+    fullName: 'Aarav Mehta',
+    school: 'Greenwood High Academy',
+    board: 'CBSE',
+    className: 'Class 10A',
+    role: 'student',
+  },
+}
+
 const normalizeRole = role => String(role || '').toLowerCase() === 'student' ? 'student' : 'teacher'
 
 function readArray(key) {
@@ -18,7 +40,33 @@ function readArray(key) {
 }
 
 function writeArray(key, value) {
-  localStorage.setItem(key, JSON.stringify(value))
+  try {
+    localStorage.setItem(key, JSON.stringify(value))
+  } catch {
+    // storage full or unavailable
+  }
+}
+
+// Seed starter demo accounts so the application is immediately usable
+export function seedDefaultAccounts() {
+  try {
+    ['teacher', 'student'].forEach(role => {
+      const existing = readArray(ROLE_KEY[role].accounts)
+      const demo = DEMO_ACCOUNTS[role]
+      const hasAccount = existing.some(
+        a => (a.username && a.username.toLowerCase() === demo.username) || (a.email && a.email.toLowerCase() === demo.email)
+      )
+      if (!hasAccount) {
+        writeArray(ROLE_KEY[role].accounts, [...existing, demo])
+      }
+      const existingUsernames = readArray(ROLE_KEY[role].usernames)
+      if (!existingUsernames.includes(demo.username)) {
+        writeArray(ROLE_KEY[role].usernames, [...existingUsernames, demo.username])
+      }
+    })
+  } catch {
+    // storage not accessible
+  }
 }
 
 // One-time migration from the old shared stores. Every existing account
@@ -53,9 +101,15 @@ export function migrateAuthStores() {
 }
 
 migrateAuthStores()
+seedDefaultAccounts()
 
 export function getRoleAccounts(role) {
-  return readArray(ROLE_KEY[normalizeRole(role)].accounts)
+  const accounts = readArray(ROLE_KEY[normalizeRole(role)].accounts)
+  if (accounts.length === 0) {
+    const demo = DEMO_ACCOUNTS[normalizeRole(role)]
+    return [demo]
+  }
+  return accounts
 }
 
 export function saveRoleAccount(role, account) {
