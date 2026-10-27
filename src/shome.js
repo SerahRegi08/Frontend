@@ -601,14 +601,46 @@ function StudentHome({ student, onLogout }) {
     if (view === activeView) return
     setViewHistory(history => [...history, activeView].slice(-20))
     setActiveView(view)
+    try {
+      window.history.pushState({ view }, '', window.location.pathname)
+    } catch { /* ignore */ }
   }
 
   const goBackView = () => {
+    if (selectedSubject) {
+      setSelectedSubject(null)
+      return
+    }
     const prev = viewHistory[viewHistory.length - 1]
-    if (!prev) return
-    setViewHistory(viewHistory.slice(0, -1))
-    setActiveView(prev)
+    if (prev) {
+      setViewHistory(viewHistory.slice(0, -1))
+      setActiveView(prev)
+      try {
+        window.history.replaceState({ view: prev }, '', window.location.pathname)
+      } catch { /* ignore */ }
+    } else {
+      setActiveView('subjects')
+      try {
+        window.history.replaceState({ view: 'subjects' }, '', window.location.pathname)
+      } catch { /* ignore */ }
+    }
   }
+
+  useEffect(() => {
+    try {
+      window.history.replaceState({ view: 'subjects' }, '', window.location.pathname)
+    } catch { /* ignore */ }
+
+    const handlePopState = event => {
+      if (selectedSubject) {
+        setSelectedSubject(null)
+      }
+      const targetView = event.state?.view || 'subjects'
+      setActiveView(targetView)
+    }
+    window.addEventListener('popstate', handlePopState)
+    return () => window.removeEventListener('popstate', handlePopState)
+  }, [selectedSubject])
 
   // Profile: view details, update them, change password.
   const openProfile = () => {
@@ -1011,7 +1043,9 @@ function StudentHome({ student, onLogout }) {
   return (
     <div className="student-app">
       <header className="student-header">
-        <button className="header-back-button" type="button" aria-label="Back to login" title="Back to login" onClick={onLogout}>← Back</button>
+        {(activeView !== 'subjects' || selectedSubject) && (
+          <button className="header-back-button" type="button" aria-label="Go back" title="Go back" onClick={goBackView}>← Back</button>
+        )}
         <button className="sh-menu-btn" type="button" aria-label="Open navigation" onClick={openMenu}>☰</button>
         <div className="student-greeting">
           <span className="brand-mark">C</span>
@@ -1073,7 +1107,9 @@ function StudentHome({ student, onLogout }) {
       )}
 
       <main className="student-main">
-        <button className="sh-back sh-back-top" type="button" onClick={goBackView}>← Back</button>
+        {(activeView !== 'subjects' || selectedSubject) && (
+          <button className="sh-back sh-back-top" type="button" onClick={goBackView}>← Back</button>
+        )}
         <nav className="sh-tabs" aria-label="Student workspace">
           <button className={activeView === 'subjects' ? 'active' : ''} onClick={() => goView('subjects')} type="button">My Subjects</button>
           <button className={activeView === 'worksheets' ? 'active' : ''} onClick={() => goView('worksheets')} type="button">My Worksheets</button>

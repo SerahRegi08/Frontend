@@ -91,6 +91,11 @@ function Login() {
     setLoggedInUser({ username: account.username, fullName: account.fullName, email: account.email })
     setLoggedInRole(role)
     setLoggedIn(true)
+    try {
+      window.history.replaceState({ authenticated: true, role }, '', window.location.pathname)
+    } catch {
+      // ignore
+    }
   }
 
   const login = async (event) => {
@@ -139,6 +144,7 @@ function Login() {
     try {
       localStorage.removeItem('cognify_active_role')
       localStorage.removeItem('cognify_active_user')
+      window.history.replaceState(null, '', window.location.pathname)
     } catch {}
     setLoggedIn(false)
     setLoggedInRole(null)

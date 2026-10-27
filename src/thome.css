@@ -46,9 +46,12 @@ button { cursor: pointer; }
 	border-bottom: 1px solid var(--teacher-line);
 }
 
-.menu-button, .header-actions button { border: 0; background: transparent; color: var(--teacher-green); font-size: 20px; }
-.header-back-button { border: 0; background: transparent; color: var(--teacher-green); font-size: 14px; font-weight: 800; white-space: nowrap; }
+.menu-button, .header-actions button { border: 0; background: transparent; color: var(--teacher-green); font-size: 20px; cursor: pointer; }
+.header-back-button { border: 0; background: transparent; color: var(--teacher-green); font-size: 14px; font-weight: 800; white-space: nowrap; cursor: pointer; }
 .header-back-button:hover { text-decoration: underline; }
+.teacher-logout { padding: 8px 14px; border: 1px solid var(--teacher-line) !important; border-radius: 8px; background: transparent; color: #c0392b !important; font-size: 13px !important; font-weight: 800; cursor: pointer; transition: all 0.2s ease; }
+.teacher-logout:hover { background: #fde8e6; }
+[data-theme='dark'] .teacher-logout:hover { background: rgba(192, 57, 43, 0.2); }
 
 /* NOTIFICATIONS */
 .notif-bell { position: relative; }

@@ -32,11 +32,18 @@ export const timeAgo = ts => {
 }
 
 export const getApiBase = () => {
-  if (process.env.REACT_APP_API_URL) return process.env.REACT_APP_API_URL
-  if (typeof window !== 'undefined' && window.location && window.location.hostname) {
-    return `http://${window.location.hostname}:5000`
+  if (process.env.REACT_APP_API_URL) {
+    return process.env.REACT_APP_API_URL.replace(/\/$/, '')
   }
-  return 'http://localhost:5000'
+  if (typeof window !== 'undefined' && window.location) {
+    const { hostname } = window.location
+    if (hostname === 'localhost' || hostname === '127.0.0.1') {
+      return `http://${hostname}:5000`
+    }
+    // Production default: deployed backend on Vercel
+    return 'https://backend-eight-gamma-47.vercel.app'
+  }
+  return 'https://backend-eight-gamma-47.vercel.app'
 }
 
 export const friendlyError = (err, defaultMsg = 'An error occurred') => {

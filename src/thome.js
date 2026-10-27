@@ -369,14 +369,39 @@ function TeacherHome({ onLogout }) {
 		if (view === activeView) return
 		setViewHistory(history => [...history, activeView].slice(-20))
 		setActiveView(view)
+		try {
+			window.history.pushState({ view }, '', window.location.pathname)
+		} catch { /* ignore */ }
 	}
 
 	const goBackView = () => {
 		const prev = viewHistory[viewHistory.length - 1]
-		if (!prev) return
-		setViewHistory(viewHistory.slice(0, -1))
-		setActiveView(prev)
+		if (prev) {
+			setViewHistory(viewHistory.slice(0, -1))
+			setActiveView(prev)
+			try {
+				window.history.replaceState({ view: prev }, '', window.location.pathname)
+			} catch { /* ignore */ }
+		} else {
+			setActiveView('dashboard')
+			try {
+				window.history.replaceState({ view: 'dashboard' }, '', window.location.pathname)
+			} catch { /* ignore */ }
+		}
 	}
+
+	useEffect(() => {
+		try {
+			window.history.replaceState({ view: 'dashboard' }, '', window.location.pathname)
+		} catch { /* ignore */ }
+
+		const handlePopState = event => {
+			const targetView = event.state?.view || 'dashboard'
+			setActiveView(targetView)
+		}
+		window.addEventListener('popstate', handlePopState)
+		return () => window.removeEventListener('popstate', handlePopState)
+	}, [])
 
 	const openMenu = () => {
 		setMenuClosing(false)
@@ -751,7 +776,9 @@ function TeacherHome({ onLogout }) {
 	return (
 		<div className="teacher-app">
 			<header className="teacher-header">
-				<button className="header-back-button" type="button" aria-label="Back to login" title="Back to login" onClick={onLogout}>← Back</button>
+				{activeView !== 'dashboard' && (
+					<button className="header-back-button" type="button" aria-label="Go back" title="Go back" onClick={goBackView}>← Back</button>
+				)}
 				<button className="menu-button" type="button" aria-label="Open navigation" aria-expanded={menuOpen} onClick={openMenu}>☰</button>
 				<div className="teacher-greeting">
 					<span className="brand-mark">C</span>
@@ -770,6 +797,7 @@ function TeacherHome({ onLogout }) {
 				<div className="header-actions">
 					<button type="button" aria-label="Notifications" className="notif-bell" onClick={openNotif}>🔔{notifUnread > 0 && <span className="notif-badge">{notifUnread > 9 ? '9+' : notifUnread}</span>}</button>
 					<button type="button" aria-label="Profile" onClick={openProfile}>👤</button>
+					<button type="button" className="teacher-logout" aria-label="Log out" title="Log out" onClick={onLogout}>🚪 Log out</button>
 				</div>
 			</header>
 
@@ -856,7 +884,9 @@ function TeacherHome({ onLogout }) {
 			)}
 
 			<main className="teacher-main">
-				<button className="dashboard-back-button" type="button" onClick={goBackView}>← Back</button>
+				{activeView !== 'dashboard' && (
+					<button className="dashboard-back-button" type="button" onClick={goBackView}>← Back</button>
+				)}
 				<nav className="view-tabs" aria-label="Teacher workspace">
 					<button className={activeView === 'dashboard' ? 'active' : ''} onClick={() => goView('dashboard')} type="button">Dashboard</button>
 					<button className={activeView === 'classes' ? 'active' : ''} onClick={() => goView('classes')} type="button">My classes</button>
